@@ -1,0 +1,265 @@
+from __future__ import annotations
+
+import os
+from jinx.openai_mod import build_header_and_tag
+from .openai_caller import call_openai, call_openai_validated, call_openai_stream_first_block
+from jinx.log_paths import OPENAI_REQUESTS_DIR_GENERAL
+from jinx.logger.openai_requests import write_openai_request_dump, write_openai_response_append
+from jinx.micro.memory.storage import write_token_hint
+from jinx.retry import detonate_payload
+from .prompt_compose import compose_dynamic_prompt
+from .macro_registry import MacroContext, expand_dynamic_macros
+from .macro_providers import register_builtin_macros
+from .macro_plugins import load_macro_plugins
+from jinx.micro.conversation.cont import load_last_anchors
+from jinx.micro.runtime.api import list_programs
+import platform
+import sys
+import datetime as _dt
+from .prompt_filters import sanitize_prompt_for_external_api
+from jinx.micro.text.heuristics import is_code_like as _is_code_like
+from jinx.micro.rt.timing import timing_section
+
+
+async def code_primer(prompt_override: str | None = None) -> tuple[str, str]:
+    """Build instruction header and return it with a code tag identifier.
+
+    Returns (header_plus_prompt, code_tag_id).
+    """
+    return await build_header_and_tag(prompt_override)
+
+
+async def _prepare_request(txt: str, *, prompt_override: str | None = None) -> tuple[str, str, str, str, str]:
+    """Compose instructions and return (jx, tag, model, sx, stxt)."""
+    jx, tag = await code_primer(prompt_override)
+    # Expand dynamic prompt macros in real time (vars/env/anchors/sys/runtime/exports + custom providers)
+    try:
+        jx = await compose_dynamic_prompt(jx, key=tag)
+        # Auto-inject helpful embedding macros so the user doesn't need to type them
+        try:
+            auto_on = str(os.getenv("JINX_AUTOMACROS", "1")).lower() not in ("", "0", "false", "off", "no")
+        except Exception:
+            auto_on = True
+        if auto_on and ("{{m:" not in jx or "{{m:emb:" not in jx or "{{m:mem:" not in jx):
+            lines = []
+            try:
+                use_dlg = str(os.getenv("JINX_AUTOMACRO_DIALOGUE", "1")).lower() not in ("", "0", "false", "off", "no")
+            except Exception:
+                use_dlg = True
+            try:
+                use_proj = str(os.getenv("JINX_AUTOMACRO_PROJECT", "1")).lower() not in ("", "0", "false", "off", "no")
+            except Exception:
+                use_proj = True
+            # Dynamic topK per source
+            try:
+                dlg_k = int(os.getenv("JINX_AUTOMACRO_DIALOGUE_K", "3"))
+            except Exception:
+                dlg_k = 3
+            try:
+                proj_k = int(os.getenv("JINX_AUTOMACRO_PROJECT_K", "3"))
+            except Exception:
+                proj_k = 3
+            codey = _is_code_like(txt or "")
+            # Memory automacros
+            try:
+                use_mem = str(os.getenv("JINX_AUTOMACRO_MEMORY", "1").lower()) not in ("", "0", "false", "off", "no")
+            except Exception:
+                use_mem = True
+            try:
+                mem_comp_k = int(os.getenv("JINX_AUTOMACRO_MEM_COMPACT_K", "8"))
+            except Exception:
+                mem_comp_k = 8
+            try:
+                mem_ever_k = int(os.getenv("JINX_AUTOMACRO_MEM_EVERGREEN_K", "8"))
+            except Exception:
+                mem_ever_k = 8
+            # Prefer project for code-like, dialogue for plain text; keep both if allowed
+            if use_dlg:
+                if codey and not use_proj:
+                    lines.append(f"Context (dialogue): {{{{m:emb:dialogue:{dlg_k}}}}}")
+                elif not codey:
+                    lines.append(f"Context (dialogue): {{{{m:emb:dialogue:{dlg_k}}}}}")
+            if use_proj:
+                if codey or not use_dlg:
+                    lines.append(f"Context (code): {{{{m:emb:project:{proj_k}}}}}")
+            if use_mem:
+                # Inject routed memory (pins + graph-aligned + ranker)
+                lines.append(f"Memory (routed): {{{{m:memroute:{max(mem_comp_k, mem_ever_k)}}}}}")
+            if lines:
+                jx = jx + "\n" + "\n".join(lines) + "\n"
+        # Optionally include recent patch previews/commits from runtime exports
+        try:
+            include_patch = str(os.getenv("JINX_AUTOMACRO_PATCH_EXPORTS", "1")).lower() not in ("", "0", "false", "off", "no")
+        except Exception:
+            include_patch = True
+        if include_patch and ("{{export:" not in jx or "{{export:last_patch_" not in jx):
+            exp_lines = [
+                "Recent Patch Preview (may be empty): {{export:last_patch_preview:1}}",
+                "Recent Patch Commit (may be empty): {{export:last_patch_commit:1}}",
+                "Recent Patch Strategy: {{export:last_patch_strategy:1}}",
+                "Recent Patch Reason: {{export:last_patch_reason:1}}",
+            ]
+            jx = jx + "\n" + "\n".join(exp_lines) + "\n"
+        # Optionally include last verification results
+        try:
+            include_verify = str(os.getenv("JINX_AUTOMACRO_VERIFY_EXPORTS", "1")).lower() not in ("", "0", "false", "off", "no")
+        except Exception:
+            include_verify = True
+        if include_verify and ("{{export:" not in jx or "{{export:last_verify_" not in jx):
+            vlines = [
+                "Verification Score: {{export:last_verify_score:1}}",
+                "Verification Reason: {{export:last_verify_reason:1}}",
+                "Verification Files: {{export:last_verify_files:1}}",
+            ]
+            jx = jx + "\n" + "\n".join(vlines) + "\n"
+        # Optionally include last sandbox run artifacts (stdout/stderr/status) via macros
+        try:
+            include_run = str(os.getenv("JINX_AUTOMACRO_RUN_EXPORTS", "1")).lower() not in ("", "0", "false", "off", "no")
+        except Exception:
+            include_run = True
+        if include_run and ("{{m:run:" not in jx):
+            try:
+                run_chars = max(24, int(os.getenv("JINX_MACRO_MEM_PREVIEW_CHARS", "160")))
+            except Exception:
+                run_chars = 160
+            rlines = [
+                f"Last Run Status: {{{{m:run:status}}}}",
+                f"Last Run Stdout: {{{{m:run:stdout:3:chars={run_chars}}}}}",
+                f"Last Run Stderr: {{{{m:run:stderr:2:chars={run_chars}}}}}",
+            ]
+            jx = jx + "\n" + "\n".join(rlines) + "\n"
+        # Build macro context and expand provider macros {{m:ns:arg1:arg2}}
+        try:
+            anc = await load_last_anchors()
+        except Exception:
+            anc = {}
+        try:
+            progs = await list_programs()
+        except Exception:
+            progs = []
+        ctx = MacroContext(
+            key=tag,
+            anchors={k: [str(x) for x in (anc.get(k) or [])] for k in ("questions","symbols","paths")},
+            programs=progs,
+            os_name=platform.system(),
+            py_ver=sys.version.split(" ")[0],
+            cwd=os.getcwd() if hasattr(os, "getcwd") else "",
+            now_iso=_dt.datetime.now().isoformat(timespec="seconds"),
+            now_epoch=str(int(_dt.datetime.now().timestamp())),
+            input_text=txt or "",
+        )
+        # Ensure built-in providers and plugin macros are registered/loaded
+        # Initialize macro providers/plugins once per process
+        import asyncio as _asyncio
+        _init_lock = getattr(spark_openai, "_macro_init_lock", None)
+        if _init_lock is None:
+            _init_lock = _asyncio.Lock()
+            setattr(spark_openai, "_macro_init_lock", _init_lock)
+        if not getattr(spark_openai, "_macro_inited", False):
+            async with _init_lock:
+                if not getattr(spark_openai, "_macro_inited", False):
+                    try:
+                        await register_builtin_macros()
+                    except Exception:
+                        pass
+                    try:
+                        await load_macro_plugins()
+                    except Exception:
+                        pass
+                    setattr(spark_openai, "_macro_inited", True)
+        try:
+            max_exp = int(os.getenv("JINX_PROMPT_MACRO_MAX", "50"))
+        except Exception:
+            max_exp = 50
+        jx = await expand_dynamic_macros(jx, ctx, max_expansions=max_exp)
+        # Best-effort token hint (chars/4 heuristic) for dynamic memory budgets
+        try:
+            est_tokens = max(0, (len(jx) + len(txt or "")) // 4)
+            await write_token_hint(est_tokens)
+        except Exception:
+            pass
+    except Exception:
+        pass
+    model = os.getenv("OPENAI_MODEL", "gpt-5")
+    # Sanitize prompts to avoid leaking internal .jinx paths/content
+    sx = sanitize_prompt_for_external_api(jx)
+    stxt = sanitize_prompt_for_external_api(txt or "")
+    return jx, tag, model, sx, stxt
+
+
+async def spark_openai(txt: str, *, prompt_override: str | None = None) -> tuple[str, str]:
+    """Call OpenAI Responses API and return output text with the code tag.
+
+    Returns (output_text, code_tag_id).
+    """
+    jx, tag, model, sx, stxt = await _prepare_request(txt, prompt_override=prompt_override)
+
+    async def openai_task() -> tuple[str, str]:
+        req_path: str = ""
+        import asyncio as _asyncio
+        # Overlap request dump with LLM call
+        dump_task = _asyncio.create_task(write_openai_request_dump(
+            target_dir=OPENAI_REQUESTS_DIR_GENERAL,
+            kind="GENERAL",
+            instructions=sx,
+            input_text=stxt,
+            model=model,
+        ))
+        # Preferred: validated multi-sample path
+        try:
+            async with timing_section("llm.call"):
+                out = await call_openai_validated(sx, model, stxt, code_id=tag)
+        except Exception:
+            # Fallback to legacy single-sample on error
+            async with timing_section("llm.call_legacy"):
+                out = await call_openai(sx, model, stxt)
+        # Get dump path (await, then append in background)
+        try:
+            req_path = await dump_task
+        except Exception:
+            req_path = ""
+        try:
+            _asyncio.create_task(write_openai_response_append(req_path, "GENERAL", out))
+        except Exception:
+            pass
+        return (out, tag)
+
+    # Avoid duplicate outbound API calls on post-call exceptions by disabling retries here.
+    # Lower-level resiliency is provided by caching/coalescing/multi-path logic.
+    return await detonate_payload(openai_task, retries=1)
+
+
+async def spark_openai_streaming(txt: str, *, prompt_override: str | None = None, on_first_block=None) -> tuple[str, str]:
+    """Streaming LLM call with early execution on first complete <python_{tag}> block.
+
+    Returns (full_output_text, code_tag_id).
+    """
+    jx, tag, model, sx, stxt = await _prepare_request(txt, prompt_override=prompt_override)
+
+    async def openai_task() -> tuple[str, str]:
+        req_path: str = ""
+        import asyncio as _asyncio
+        dump_task = _asyncio.create_task(write_openai_request_dump(
+            target_dir=OPENAI_REQUESTS_DIR_GENERAL,
+            kind="GENERAL",
+            instructions=sx,
+            input_text=stxt,
+            model=model,
+        ))
+        try:
+            async with timing_section("llm.stream"):
+                out = await call_openai_stream_first_block(sx, model, stxt, code_id=tag, on_first_block=on_first_block)
+        except Exception:
+            async with timing_section("llm.call_fallback"):
+                out = await call_openai_validated(sx, model, stxt, code_id=tag)
+        try:
+            req_path = await dump_task
+        except Exception:
+            req_path = ""
+        try:
+            _asyncio.create_task(write_openai_response_append(req_path, "GENERAL", out))
+        except Exception:
+            pass
+        return (out, tag)
+
+    return await detonate_payload(openai_task, retries=1)
