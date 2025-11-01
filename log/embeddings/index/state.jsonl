@@ -1,0 +1,42 @@
+{"ts": 1760763391.2577286, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc"}
+{"ts": 1760763393.5759125, "source": "state", "kind": "mem", "content_id": "69aeb6696c007ca40959e267224929db0d762ba6b8a387c2aefbb50217039825"}
+{"ts": 1760763393.5771408, "source": "state", "kind": "mem", "content_id": "f9080cf76e2adc4e7d3175fe5602f7139ea58d7935ec7757e20d586513cfe46c"}
+{"ts": 1760763393.5785685, "source": "state", "kind": "mem", "content_id": "497f2e40edd01083377582e5b30619cc87ecb24fb24a9b548835ad0ceb1a2005"}
+{"ts": 1760763393.5798888, "source": "state", "kind": "mem", "content_id": "7b96b80a567f226ccbfb10ecd7a7436cfb4e579b55a79b51b479e0a18359903a"}
+{"ts": 1760763393.580936, "source": "state", "kind": "mem", "content_id": "067cef022417abe088ca93918f965e0d0f9dae6d62134b1a22c945a9905f8020"}
+{"ts": 1760763463.922638, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760763467.2918296, "source": "state", "kind": "mem", "content_id": "62d15fbe8459ba7b20d0eef77a92990b1c0c73426bb7470d9caf9276238b62f0"}
+{"ts": 1760763467.2919698, "source": "state", "kind": "mem", "content_id": "616fdb7dd880ae28069e7fa6814c156eb8b35ac00083da75c72469e33ac39022"}
+{"ts": 1760763467.2919116, "source": "state", "kind": "mem", "content_id": "9ead89294abfdc2b168e9db3bff429fca8df2e2b46a1502e1c860497566f8a4c"}
+{"ts": 1760763467.3052688, "source": "state", "kind": "mem", "content_id": "b566dceda2a0a4d5f099e4bebdd87dc4a7555a52773fa61dbb58700c64dd8098"}
+{"ts": 1760763467.3060584, "source": "state", "kind": "mem", "content_id": "81c373475c1efb73d12f44eb00337300da21956a58435f5d1d1338751e05aa71"}
+{"ts": 1760763527.3106933, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760763530.504393, "source": "state", "kind": "mem", "content_id": "28d3795b9418e27c6f03dabf399ed35665986f16aed7c9bfce35fff2753f33a1"}
+{"ts": 1760763530.508457, "source": "state", "kind": "mem", "content_id": "09dae75e5528ca0f1da729c6a46d2917dab0923d934e563646cd6cad699ab9dc"}
+{"ts": 1760763530.5103302, "source": "state", "kind": "mem", "content_id": "c75d450fd73d7d09d7ffa83edda463ed63205610b2647bc6867dd77081e7c841"}
+{"ts": 1760763591.6204872, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760763595.7821927, "source": "state", "kind": "mem", "content_id": "19f6bb65de786d5ce8238f54b26e5fc0d32d4009ae1a6045cf8f6fccc0985aaa"}
+{"ts": 1760763595.7823057, "source": "state", "kind": "mem", "content_id": "d3e350888907185ef78488e35fc858cd1b4cc7a8740a15ab247c93d23c013459"}
+{"ts": 1760763595.7822652, "source": "state", "kind": "mem", "content_id": "96e93637ed875782fa6714f395eeb7859d271298deaa1d5d740e731818046858"}
+{"ts": 1760763662.6285899, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760763665.2873735, "source": "state", "kind": "mem", "content_id": "af05cf9312c4975f7c332948991fee68257ada1d156deedfdd5daef6d9f5e421"}
+{"ts": 1760763665.2873113, "source": "state", "kind": "mem", "content_id": "67654496477599b9c30451ef940ce840bff846f3e4a4533a96e5c9e966fa9f22"}
+{"ts": 1760763711.0807917, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760763755.3702872, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760763757.454267, "source": "state", "kind": "mem", "content_id": "35edad054fa8d95d1fa84b089860391693f574c6171ebddd59935a70e3466c5a"}
+{"ts": 1760763795.0533962, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760763796.8895855, "source": "state", "kind": "mem", "content_id": "4372a6db1564dd15fd909206e2499b2fa5f5c952b0e77e8dccb6e0a62cb60945"}
+{"ts": 1760763796.889613, "source": "state", "kind": "mem", "content_id": "eccc59dd49a1aa2d32bc92f4711fc7cd11e9387383fce69cef08855b4d54f657"}
+{"ts": 1760763834.2494347, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760763889.8626237, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760763946.9637911, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760764005.7760327, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760764063.5329645, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760764107.909681, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760764146.1777744, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760764148.3063319, "source": "state", "kind": "mem", "content_id": "6a0aa5ea110bcd8d989daa2eccf7801c6558a698a6a4b49bb6005ef283fd892f"}
+{"ts": 1760764186.2345994, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760764188.6458237, "source": "state", "kind": "mem", "content_id": "9e8c44912784130e12c1b7bc8c717b46a04d6fc379634c113ec2a574027e8f27"}
+{"ts": 1760764188.6463766, "source": "state", "kind": "mem", "content_id": "c5b2e99318911cecf36086aee46b3a7c49a5cd2fd9cfd5f7356850735d649167"}
+{"ts": 1760764233.523469, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
+{"ts": 1760764280.3472552, "source": "state", "kind": "frame", "content_id": "b2d288c12e4c9dd5a04c973d8288cd937c71f3278c68f0fb1cdc44ce9772c1bc", "dedup": true}
