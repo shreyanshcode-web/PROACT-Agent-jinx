@@ -17,6 +17,10 @@ import os
 import sys
 from pathlib import Path
 
+import warnings
+# Suppress SyntaxWarning: invalid escape sequence which appears in some libraries/regexes
+warnings.filterwarnings("ignore", category=SyntaxWarning)
+
 # Add the project root to the Python path
 project_root = str(Path(__file__).parent.absolute())
 if project_root not in sys.path:

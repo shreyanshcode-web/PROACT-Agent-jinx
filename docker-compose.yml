@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  jinx:
+    build: .
+    container_name: jinx-agent
+    volumes:
+      - ./.env:/app/.env
+      - ./log:/app/log
+      # Mount the source code for development (optional)
+      # - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    stdin_open: true # docker run -i
+    tty: true        # docker run -t
+    restart: unless-stopped

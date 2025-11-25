@@ -19,7 +19,7 @@ def main() -> None:
     standard CLI entrypoints without requiring the caller to manage an event
     loop.
     """
-    # Ensure environment variables (e.g., OPENAI_API_KEY) are loaded from .env
+    # Ensure environment variables (e.g., GEMINI_API_KEY) are loaded from .env
     load_env()
     # Ensure runtime optional deps are present before importing runtime_service
     ensure_optional([

@@ -8,7 +8,7 @@ import time
 from typing import Any, Dict, Optional, Tuple, List
 from threading import Lock as _TLock
 
-from jinx.net import get_openai_client
+from jinx.net import get_gemini_client
 from jinx.micro.parser.api import parse_tagged_blocks as _parse_blocks
 
 # TTL cache + request coalescing + concurrency limiting + timeouts for LLM Responses API
@@ -97,8 +97,8 @@ async def _dump_line(line: str) -> None:
         pass
 
 
-async def call_openai_cached(instructions: str, model: str, input_text: str, *, extra_kwargs: Optional[Dict[str, Any]] = None) -> str:
-    """Cached/coalesced wrapper for OpenAI Responses API.
+async def call_gemini_cached(instructions: str, model: str, input_text: str, *, extra_kwargs: Optional[Dict[str, Any]] = None) -> str:
+    """Cached/coalesced wrapper for Gemini API.
 
     Returns output_text (string). On API error, raises the exception (caller logs/handles).
     """
@@ -148,14 +148,30 @@ async def call_openai_cached(instructions: str, model: str, input_text: str, *, 
     async with _sem:
         await _dump_line(f"call key={key[:8]} model={model} ilen={len(instructions)} tlen={len(input_text)}")
         def _worker():
-            client = get_openai_client()
+            import google.generativeai as genai
+            client = get_gemini_client()
+            # Gemini doesn't use the same kwargs structure, so we adapt basic ones
             ek_api = {str(k): v for k, v in ek.items() if not str(k).startswith("__")}
-            return client.responses.create(
-                instructions=instructions,
-                model=model,
-                input=input_text,
-                **ek_api,
+            
+            # Extract generation config parameters
+            gen_config = {}
+            if "temperature" in ek_api:
+                gen_config["temperature"] = ek_api.pop("temperature")
+            if "max_tokens" in ek_api:
+                gen_config["max_output_tokens"] = ek_api.pop("max_tokens")
+                
+            # Use the model passed in, or fall back to default
+            model_name = model or "gemini-pro"
+            gm = genai.GenerativeModel(model_name)
+            
+            # Combine instructions and input for Gemini
+            prompt = f"{instructions}\n\n{input_text}"
+            
+            response = gm.generate_content(
+                prompt,
+                generation_config=gen_config
             )
+            return response
         # Launch background task so we can safely wait on shared fut even if a soft timeout occurs
         task: asyncio.Task = asyncio.create_task(asyncio.to_thread(_worker))
 
@@ -167,7 +183,7 @@ async def call_openai_cached(instructions: str, model: str, input_text: str, *, 
                         fut.set_exception(asyncio.CancelledError())
                     return
                 r = t.result()
-                out = str(getattr(r, "output_text", ""))
+                out = str(getattr(r, "text", ""))
                 _mem[key] = (_now() + max(1.0, _TTL_SEC), out)
                 if not fut.done():
                     fut.set_result(out)
@@ -210,7 +226,7 @@ async def call_openai_cached(instructions: str, model: str, input_text: str, *, 
                 soft_timeout = True
                 await _dump_line("soft_timeout_cancelled")
             else:
-                out = str(getattr(r, "output_text", ""))
+                out = str(getattr(r, "text", ""))
                 # Callback will also set cache/fut and pop inflight; just return out here
                 return out
         else:
@@ -228,7 +244,7 @@ async def call_openai_cached(instructions: str, model: str, input_text: str, *, 
             raise ex
     
 
-async def call_openai_multi_validated(
+async def call_gemini_multi_validated(
     instructions: str,
     model: str,
     input_text: str,
@@ -266,7 +282,7 @@ async def call_openai_multi_validated(
         # Only the first sample registers family inflight; others opt-out to avoid collapsing race
         if not register_family:
             kw["__no_family__"] = True
-        return await call_openai_cached(instructions, model, input_text, extra_kwargs=kw)
+        return await call_gemini_cached(instructions, model, input_text, extra_kwargs=kw)
 
     # Start first immediately
     tasks: List[asyncio.Task] = []
@@ -314,3 +330,8 @@ async def call_openai_multi_validated(
             return out
     # If none validated, return earliest completed output
     return first or ""
+
+
+# Backward compatibility aliases
+call_openai_cached = call_gemini_cached
+call_openai_multi_validated = call_gemini_multi_validated

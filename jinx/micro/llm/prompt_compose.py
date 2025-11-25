@@ -8,9 +8,7 @@ from datetime import datetime
 from typing import List
 import asyncio
 
-from jinx.micro.conversation.cont import load_last_anchors
-from jinx.micro.runtime.api import list_programs
-from jinx.micro.runtime.exports import collect_export, get_program_export
+
 
 _VAR_RE = re.compile(r"\{\{var:([a-zA-Z0-9_]+)\}\}")
 _ENV_RE = re.compile(r"\{\{env:([A-Z0-9_]+)\}\}")
@@ -56,6 +54,7 @@ async def compose_dynamic_prompt(text: str, *, key: str) -> str:
 
     # 3) Anchors
     try:
+        from jinx.micro.conversation.cont import load_last_anchors
         anc = await load_last_anchors()
     except Exception:
         anc = {}
@@ -114,6 +113,7 @@ async def compose_dynamic_prompt(text: str, *, key: str) -> str:
         if not has_prog:
             return s
         try:
+            from jinx.micro.runtime.api import list_programs
             pids = await list_programs()
         except Exception:
             pids = []
@@ -151,6 +151,7 @@ async def compose_dynamic_prompt(text: str, *, key: str) -> str:
             except Exception:
                 n = None
             try:
+                from jinx.micro.runtime.exports import collect_export
                 vals = await collect_export(key_name, limit=n)
             except Exception:
                 vals = []
@@ -170,6 +171,7 @@ async def compose_dynamic_prompt(text: str, *, key: str) -> str:
             pid = m.group(1)
             exk = m.group(2)
             try:
+                from jinx.micro.runtime.exports import get_program_export
                 val = await get_program_export(pid, exk)
             except Exception:
                 val = ""

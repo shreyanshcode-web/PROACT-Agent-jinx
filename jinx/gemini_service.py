@@ -1,33 +1,29 @@
 from __future__ import annotations
 
 import os
-from jinx.gemini_service import build_header_and_tag
-from .gemini_caller import call_gemini, call_gemini_validated, call_gemini_stream_first_block
+import platform
+import sys
+import datetime as _dt
+
+from jinx.micro.llm.gemini_caller import call_gemini, call_gemini_validated, call_gemini_stream_first_block
 from jinx.log_paths import LLM_REQUESTS_DIR_GENERAL
 from jinx.logger.llm_requests import write_llm_request_dump, write_llm_response_append
 from jinx.micro.memory.storage import write_token_hint
 from jinx.retry import detonate_payload
-from .prompt_compose import compose_dynamic_prompt
-from .macro_registry import MacroContext, expand_dynamic_macros
-from .macro_providers import register_builtin_macros
-from .macro_plugins import load_macro_plugins
+from jinx.micro.llm.prompt_compose import compose_dynamic_prompt
+from jinx.micro.llm.macro_registry import MacroContext, expand_dynamic_macros
+from jinx.micro.llm.macro_providers import register_builtin_macros
+from jinx.micro.llm.macro_plugins import load_macro_plugins
 from jinx.micro.conversation.cont import load_last_anchors
 from jinx.micro.runtime.api import list_programs
-import platform
-import sys
-import datetime as _dt
-from .prompt_filters import sanitize_prompt_for_external_api
+from jinx.micro.llm.prompt_filters import sanitize_prompt_for_external_api
 from jinx.micro.text.heuristics import is_code_like as _is_code_like
 from jinx.micro.rt.timing import timing_section
+from jinx.logging_service import bomb_log
 
 
-async def code_primer(prompt_override: str | None = None) -> tuple[str, str]:
-    """Build instruction header and return it with a code tag identifier.
 
-    Returns (header_plus_prompt, code_tag_id).
-    """
-    return await build_header_and_tag(prompt_override)
-
+from jinx.llm_primer import build_header_and_tag, code_primer
 
 async def _prepare_request(txt: str, *, prompt_override: str | None = None) -> tuple[str, str, str, str, str]:
     """Compose instructions and return (jx, tag, model, sx, stxt)."""
@@ -57,13 +53,12 @@ async def _prepare_request(txt: str, *, prompt_override: str | None = None) -> t
             if lines:
                 jx = f"{' '.join(lines)}\n\n{jx}"
     except Exception as e:
-        from jinx.logging_service import bomb_log
         await bomb_log(f"Error expanding macros: {e}")
         # Continue with unexpanded prompt rather than failing
         pass
 
     # Get the model from environment or use default
-    model = os.getenv("GEMINI_MODEL", "gemini-pro")
+    model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     
     # Sanitize the input text if needed
     stxt = sanitize_prompt_for_external_api(txt)
@@ -86,7 +81,6 @@ async def spark_gemini(txt: str, *, prompt_override: str | None = None) -> tuple
         response = await call_gemini(sx, model, stxt)
         return response, tag
     except Exception as e:
-        from jinx.logging_service import bomb_log
         await bomb_log(f"Gemini API call failed: {e}")
         raise
 
@@ -111,7 +105,12 @@ async def spark_gemini_streaming(
         )
         return response, tag
     except Exception as e:
-        from jinx.logging_service import bomb_log
         await bomb_log(f"Gemini streaming call failed: {e}")
         # Fall back to non-streaming on error
         return await spark_gemini(txt, prompt_override=prompt_override)
+
+__all__ = [
+    "code_primer",
+    "spark_gemini",
+    "spark_gemini_streaming",
+]

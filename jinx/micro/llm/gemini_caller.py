@@ -6,13 +6,13 @@ from typing import Any, Optional, Callable, Dict
 import google.generativeai as genai
 from jinx.logging_service import bomb_log
 from jinx.micro.rag.file_search import build_file_search_tools
-from .llm_cache import call_openai_cached, call_openai_multi_validated
+from .llm_cache import call_gemini_cached, call_gemini_multi_validated
 from jinx.micro.text.heuristics import is_code_like as _is_code_like
 import asyncio as _asyncio
 import queue as _queue
 
 # Initialize Gemini client
-GEMINI_MODEL = "gemini-2.0-flash"  # or "gemini-1.5-pro" when available
+GEMINI_MODEL = "gemini-2.0-flash"  # Available for this user
 
 def get_gemini_client():
     """Get or initialize the Gemini client with API key."""
@@ -34,7 +34,9 @@ async def call_gemini(instructions: str, model: str, input_text: str) -> str:
             )
             
         client = get_gemini_client()
-        model = genai.GenerativeModel(GEMINI_MODEL)
+        # Use the model passed in, or fall back to default if empty
+        model_name = model or GEMINI_MODEL
+        model = genai.GenerativeModel(model_name)
         
         # Combine instructions and input text for Gemini's chat format
         prompt = f"{instructions}\n\n{input_text}"

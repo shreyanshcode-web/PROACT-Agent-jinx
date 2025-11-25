@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import os
-from jinx.openai_mod import build_header_and_tag
-from .openai_caller import call_openai, call_openai_validated, call_openai_stream_first_block
-from jinx.log_paths import OPENAI_REQUESTS_DIR_GENERAL
-from jinx.logger.openai_requests import write_openai_request_dump, write_openai_response_append
+from jinx.llm_primer import build_header_and_tag
+from .gemini_caller import call_gemini, call_gemini_validated, call_gemini_stream_first_block
+from jinx.log_paths import LLM_REQUESTS_DIR_GENERAL
+from jinx.logger.llm_requests import write_llm_request_dump, write_llm_response_append
 from jinx.micro.memory.storage import write_token_hint
 from jinx.retry import detonate_payload
 from .prompt_compose import compose_dynamic_prompt
@@ -151,13 +151,13 @@ async def _prepare_request(txt: str, *, prompt_override: str | None = None) -> t
         # Ensure built-in providers and plugin macros are registered/loaded
         # Initialize macro providers/plugins once per process
         import asyncio as _asyncio
-        _init_lock = getattr(spark_openai, "_macro_init_lock", None)
+        _init_lock = getattr(spark_gemini, "_macro_init_lock", None)
         if _init_lock is None:
             _init_lock = _asyncio.Lock()
-            setattr(spark_openai, "_macro_init_lock", _init_lock)
-        if not getattr(spark_openai, "_macro_inited", False):
+            setattr(spark_gemini, "_macro_init_lock", _init_lock)
+        if not getattr(spark_gemini, "_macro_inited", False):
             async with _init_lock:
-                if not getattr(spark_openai, "_macro_inited", False):
+                if not getattr(spark_gemini, "_macro_inited", False):
                     try:
                         await register_builtin_macros()
                     except Exception:
@@ -166,7 +166,7 @@ async def _prepare_request(txt: str, *, prompt_override: str | None = None) -> t
                         await load_macro_plugins()
                     except Exception:
                         pass
-                    setattr(spark_openai, "_macro_inited", True)
+                    setattr(spark_gemini, "_macro_inited", True)
         try:
             max_exp = int(os.getenv("JINX_PROMPT_MACRO_MAX", "50"))
         except Exception:
@@ -180,26 +180,26 @@ async def _prepare_request(txt: str, *, prompt_override: str | None = None) -> t
             pass
     except Exception:
         pass
-    model = os.getenv("OPENAI_MODEL", "gpt-5")
+    model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
     # Sanitize prompts to avoid leaking internal .jinx paths/content
     sx = sanitize_prompt_for_external_api(jx)
     stxt = sanitize_prompt_for_external_api(txt or "")
     return jx, tag, model, sx, stxt
 
 
-async def spark_openai(txt: str, *, prompt_override: str | None = None) -> tuple[str, str]:
-    """Call OpenAI Responses API and return output text with the code tag.
+async def spark_gemini(txt: str, *, prompt_override: str | None = None) -> tuple[str, str]:
+    """Call Gemini API and return output text with the code tag.
 
     Returns (output_text, code_tag_id).
     """
     jx, tag, model, sx, stxt = await _prepare_request(txt, prompt_override=prompt_override)
 
-    async def openai_task() -> tuple[str, str]:
+    async def gemini_task() -> tuple[str, str]:
         req_path: str = ""
         import asyncio as _asyncio
         # Overlap request dump with LLM call
-        dump_task = _asyncio.create_task(write_openai_request_dump(
-            target_dir=OPENAI_REQUESTS_DIR_GENERAL,
+        dump_task = _asyncio.create_task(write_llm_request_dump(
+            target_dir=LLM_REQUESTS_DIR_GENERAL,
             kind="GENERAL",
             instructions=sx,
             input_text=stxt,
@@ -208,39 +208,39 @@ async def spark_openai(txt: str, *, prompt_override: str | None = None) -> tuple
         # Preferred: validated multi-sample path
         try:
             async with timing_section("llm.call"):
-                out = await call_openai_validated(sx, model, stxt, code_id=tag)
+                out = await call_gemini_validated(sx, model, stxt, code_id=tag)
         except Exception:
             # Fallback to legacy single-sample on error
             async with timing_section("llm.call_legacy"):
-                out = await call_openai(sx, model, stxt)
+                out = await call_gemini(sx, model, stxt)
         # Get dump path (await, then append in background)
         try:
             req_path = await dump_task
         except Exception:
             req_path = ""
         try:
-            _asyncio.create_task(write_openai_response_append(req_path, "GENERAL", out))
+            _asyncio.create_task(write_llm_response_append(req_path, "GENERAL", out))
         except Exception:
             pass
         return (out, tag)
 
     # Avoid duplicate outbound API calls on post-call exceptions by disabling retries here.
     # Lower-level resiliency is provided by caching/coalescing/multi-path logic.
-    return await detonate_payload(openai_task, retries=1)
+    return await detonate_payload(gemini_task, retries=1)
 
 
-async def spark_openai_streaming(txt: str, *, prompt_override: str | None = None, on_first_block=None) -> tuple[str, str]:
+async def spark_gemini_streaming(txt: str, *, prompt_override: str | None = None, on_first_block=None) -> tuple[str, str]:
     """Streaming LLM call with early execution on first complete <python_{tag}> block.
 
     Returns (full_output_text, code_tag_id).
     """
     jx, tag, model, sx, stxt = await _prepare_request(txt, prompt_override=prompt_override)
 
-    async def openai_task() -> tuple[str, str]:
+    async def gemini_task() -> tuple[str, str]:
         req_path: str = ""
         import asyncio as _asyncio
-        dump_task = _asyncio.create_task(write_openai_request_dump(
-            target_dir=OPENAI_REQUESTS_DIR_GENERAL,
+        dump_task = _asyncio.create_task(write_llm_request_dump(
+            target_dir=LLM_REQUESTS_DIR_GENERAL,
             kind="GENERAL",
             instructions=sx,
             input_text=stxt,
@@ -248,18 +248,32 @@ async def spark_openai_streaming(txt: str, *, prompt_override: str | None = None
         ))
         try:
             async with timing_section("llm.stream"):
-                out = await call_openai_stream_first_block(sx, model, stxt, code_id=tag, on_first_block=on_first_block)
+                out = await call_gemini_stream_first_block(sx, model, stxt, code_id=tag, on_first_block=on_first_block)
         except Exception:
             async with timing_section("llm.call_fallback"):
-                out = await call_openai_validated(sx, model, stxt, code_id=tag)
+                out = await call_gemini_validated(sx, model, stxt, code_id=tag)
         try:
             req_path = await dump_task
         except Exception:
             req_path = ""
         try:
-            _asyncio.create_task(write_openai_response_append(req_path, "GENERAL", out))
+            _asyncio.create_task(write_llm_response_append(req_path, "GENERAL", out))
         except Exception:
             pass
         return (out, tag)
 
-    return await detonate_payload(openai_task, retries=1)
+    return await detonate_payload(gemini_task, retries=1)
+
+
+# Backward compatibility aliases
+spark_openai = spark_gemini
+spark_openai_streaming = spark_gemini_streaming
+
+
+__all__ = [
+    "code_primer",
+    "spark_gemini",
+    "spark_gemini_streaming",
+    "spark_openai",  # Backward compatibility
+    "spark_openai_streaming",  # Backward compatibility
+]

@@ -20,11 +20,11 @@ SANDBOX_DIR: str = os.path.join("log", "sandbox")
 # Evergreen durable memory store
 EVERGREEN_MEMORY: str = os.path.join("log", "evergreen_memory.txt")
 
-# Directory for general OpenAI request dumps (one file per request)
-OPENAI_REQUESTS_DIR_GENERAL: str = os.path.join("log", "openai", "general")
+# Directory for general LLM request dumps (one file per request)
+LLM_REQUESTS_DIR_GENERAL: str = os.path.join("log", "llm", "general")
 
-# Directory for memory optimizer OpenAI request dumps (one file per request)
-OPENAI_REQUESTS_DIR_MEMORY: str = os.path.join("log", "openai", "memory")
+# Directory for memory optimizer LLM request dumps (one file per request)
+LLM_REQUESTS_DIR_MEMORY: str = os.path.join("log", "llm", "memory")
 
 # Autotune persisted state
 AUTOTUNE_STATE: str = os.path.join("log", "autotune_state.json")

@@ -1,69 +1,71 @@
 from __future__ import annotations
 
 import os
-from urllib.parse import urlparse
-from jinx.bootstrap import ensure_optional, package
-import importlib
 from typing import Any
 
-openai = ensure_optional(["openai"])["openai"]  # dynamic import
+
+_gemini_client: Any | None = None
 
 
-_cortex: Any | None = None
-
-
-def _pick_proxy_env() -> str | None:
-    # Preference order: explicit PROXY, then HTTPS_PROXY, then HTTP_PROXY (case-insensitive)
-    for key in ("PROXY", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"):
-        val = os.getenv(key)
-        if val:
-            return val
-    return None
-
-
-def get_openai_client() -> Any:
-    """Return a singleton OpenAI client, honoring system proxy env vars.
-
-    Supports both SOCKS and HTTP(S) proxies by constructing an httpx.Client
-    with the appropriate transport or proxies mapping.
+def get_gemini_client() -> Any:
+    """Return a singleton Gemini client.
+    
+    This replaces the OpenAI client entirely with Gemini.
     """
-    global _cortex
-    if _cortex is not None:
-        return _cortex
-    proxy = _pick_proxy_env()
-    if proxy:
-        try:
-            try:
-                httpx_socks = importlib.import_module("httpx_socks")
-                httpx = importlib.import_module("httpx")
-            except ImportError:
-                # Ensure both transport and client libraries are present
-                package("httpx-socks")
-                package("httpx")
-                httpx_socks = importlib.import_module("httpx_socks")
-                httpx = importlib.import_module("httpx")
-            scheme = (urlparse(proxy).scheme or "").lower()
-            if scheme.startswith("socks"):
-                transport = httpx_socks.SyncProxyTransport.from_url(proxy)
-                _cortex = openai.OpenAI(http_client=httpx.Client(transport=transport))
-            else:
-                # HTTP(S) proxy via httpx native proxies support
-                _cortex = openai.OpenAI(http_client=httpx.Client(proxies=proxy))
-        except Exception:
-            # Fallback to direct client if proxy configuration fails
-            _cortex = openai.OpenAI()
-    else:
-        _cortex = openai.OpenAI()
-    return _cortex
+    global _gemini_client
+    if _gemini_client is not None:
+        return _gemini_client
+    
+    # Check if Gemini API key is available
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        # Return a dummy client that will raise an error with a helpful message
+        class DummyClient:
+            def __getattr__(self, name):
+                raise Exception(
+                    "Gemini API key not configured. "
+                    "Please set GEMINI_API_KEY environment variable in your .env file"
+                )
+        _gemini_client = DummyClient()
+        return _gemini_client
+    
+    try:
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        _gemini_client = genai
+        return _gemini_client
+    except ImportError:
+        raise Exception(
+            "google-generativeai package not installed. "
+            "Run: pip install google-generativeai"
+        )
 
 
-def prewarm_openai_client() -> None:
-    """Instantiate the OpenAI client early to warm HTTP pool/proxy resolution.
+# Keep the old function name for backward compatibility
+def get_openai_client() -> Any:
+    """Backward compatibility wrapper - returns Gemini client."""
+    return get_gemini_client()
 
+
+def prewarm_gemini_client() -> None:
+    """Instantiate the Gemini client early.
+    
     Safe to call multiple times; returns immediately if already initialized.
     """
     try:
-        _ = get_openai_client()
+        _ = get_gemini_client()
     except Exception:
         # Best-effort: swallow errors — prewarm should never crash startup
         pass
+
+
+# Backward compatibility
+prewarm_openai_client = prewarm_gemini_client
+
+
+__all__ = [
+    "get_gemini_client",
+    "get_openai_client",  # Backward compatibility
+    "prewarm_gemini_client",
+    "prewarm_openai_client",  # Backward compatibility
+]

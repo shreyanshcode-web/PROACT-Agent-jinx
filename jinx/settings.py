@@ -19,9 +19,9 @@ from typing import Any, Dict, List, Optional
 import os
 import json
 
-# Reuse env keys from micro modules where applicable
-ENV_OPENAI_VECTOR_STORE_ID = "OPENAI_VECTOR_STORE_ID"
-ENV_OPENAI_FORCE_FILE_SEARCH = "OPENAI_FORCE_FILE_SEARCH"
+# Gemini-specific environment variables
+ENV_GEMINI_API_KEY = "GEMINI_API_KEY"
+ENV_GEMINI_MODEL = "GEMINI_MODEL"
 
 
 def _is_on(val: Optional[str]) -> bool:
@@ -79,19 +79,17 @@ class RuntimeSettings:
 
 
 @dataclass(slots=True)
-class OpenAISettings:
+class GeminiSettings:
     api_key: Optional[str] = None
-    model: str = "gpt-5"
+    model: str = "gemini-pro"
     proxy: Optional[str] = None
-    vector_store_ids: List[str] = field(default_factory=list)
-    force_file_search: bool = True
 
 
 @dataclass(slots=True)
 class Settings:
     pulse: int = 100
     timeout: int = 30
-    openai: OpenAISettings = field(default_factory=OpenAISettings)
+    gemini: GeminiSettings = field(default_factory=GeminiSettings)
     runtime: RuntimeSettings = field(default_factory=RuntimeSettings)
 
     @staticmethod
@@ -101,16 +99,10 @@ class Settings:
             pulse=int(o.get("pulse", os.getenv("PULSE", "100"))),
             timeout=int(o.get("timeout", os.getenv("TIMEOUT", "30"))),
         )
-        # OpenAI
-        s.openai.api_key = str(o.get("openai_api_key", os.getenv("OPENAI_API_KEY", "")) or "") or None
-        s.openai.model = str(o.get("openai_model", os.getenv("OPENAI_MODEL", s.openai.model)))
-        s.openai.proxy = str(o.get("proxy", os.getenv("PROXY", "")) or "") or None
-        s.openai.vector_store_ids = _parse_csv(
-            str(o.get("vector_store_ids", os.getenv(ENV_OPENAI_VECTOR_STORE_ID, "")))
-        )
-        s.openai.force_file_search = bool(
-            _is_on(str(o.get("force_file_search", os.getenv(ENV_OPENAI_FORCE_FILE_SEARCH, "1"))))
-        )
+        # Gemini
+        s.gemini.api_key = str(o.get("gemini_api_key", os.getenv(ENV_GEMINI_API_KEY, "")) or "") or None
+        s.gemini.model = str(o.get("gemini_model", os.getenv(ENV_GEMINI_MODEL, s.gemini.model)))
+        s.gemini.proxy = str(o.get("proxy", os.getenv("PROXY", "")) or "") or None
         # Runtime
         rt = s.runtime
         rt.queue_maxsize = int(o.get("queue_maxsize", os.getenv("JINX_QUEUE_MAXSIZE", str(_auto_queue_maxsize()))))

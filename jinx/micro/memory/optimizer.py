@@ -14,12 +14,12 @@ import re
 
 from jinx.logging_service import bomb_log, glitch_pulse
 from jinx.prompts import get_prompt
-from jinx.openai_mod import call_openai
+from jinx.micro.llm.gemini_caller import call_gemini
 from jinx.retry import detonate_payload
 from jinx.micro.memory.parse import parse_output
 from jinx.micro.memory.storage import read_evergreen, write_state, read_token_hint
-from jinx.log_paths import OPENAI_REQUESTS_DIR_MEMORY
-from jinx.logger.openai_requests import write_openai_request_dump, write_openai_response_append
+from jinx.log_paths import LLM_REQUESTS_DIR_MEMORY
+from jinx.logger.llm_requests import write_llm_request_dump, write_llm_response_append
 from jinx.micro.memory.local_builder import build_local_memory
 from jinx.micro.memory.indexer import ingest_memory
 from jinx.micro.memory.graph import update_graph
@@ -53,7 +53,7 @@ async def _optimize_memory_impl(snapshot: str | None) -> None:
             await bomb_log("MEMORY optimize: skip (empty state)")
             return
 
-        # Prefer local rule-based builder to avoid an extra OpenAI call.
+        # Prefer local rule-based builder to avoid an extra LLM call.
         def _truthy(name: str, default: str = "1") -> bool:
             try:
                 return str(os.getenv(name, default)).strip().lower() not in ("", "0", "false", "off", "no")
@@ -93,7 +93,7 @@ async def _optimize_memory_impl(snapshot: str | None) -> None:
             return
 
         instructions = get_prompt("memory_optimizer")
-        model = os.getenv("OPENAI_MODEL", "gpt-5")
+        model = os.getenv("GEMINI_MODEL", "gemini-pro")
         timeout_sec = float(os.getenv("MEMORY_TIMEOUT_SEC", "60"))
 
         # Compose a structured input for the optimizer with clear tags and spacing
@@ -130,8 +130,8 @@ async def _optimize_memory_impl(snapshot: str | None) -> None:
             # Log memory-optimizer request via micro-module
             req_path: str = ""
             try:
-                req_path = await write_openai_request_dump(
-                    target_dir=OPENAI_REQUESTS_DIR_MEMORY,
+                req_path = await write_llm_request_dump(
+                    target_dir=LLM_REQUESTS_DIR_MEMORY,
                     kind="MEMORY",
                     instructions=instructions,
                     input_text=input_text,
@@ -139,15 +139,15 @@ async def _optimize_memory_impl(snapshot: str | None) -> None:
                 )
             except Exception:
                 pass
-            out_text = await call_openai(instructions, model, input_text)
+            out_text = await call_gemini(instructions, model, input_text)
             # Append response to same file (best-effort)
             try:
-                await write_openai_response_append(req_path, "MEMORY", out_text)
+                await write_llm_response_append(req_path, "MEMORY", out_text)
             except Exception:
                 pass
             return out_text
 
-        # Reuse shared retry/timeout helper for consistency with openai_service
+        # Reuse shared retry/timeout helper for consistency with gemini_service
         out = await detonate_payload(_invoke_llm, timeout=timeout_sec)
 
         compact, durable = parse_output(out)

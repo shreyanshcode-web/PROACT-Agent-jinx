@@ -7,7 +7,7 @@ import re
 import asyncio
 
 from jinx.logging_service import glitch_pulse, bomb_log, blast_mem
-from jinx.openai_service import spark_openai
+
 from jinx.error_service import dec_pulse
 from jinx.conversation import build_chains, run_blocks
 from jinx.micro.ui.output import pretty_echo
