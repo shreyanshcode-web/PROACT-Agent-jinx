@@ -5,8 +5,6 @@ import json
 import time
 from typing import Optional, Tuple, List
 
-from jinx.micro.memory.storage import memory_dir
-
 
 def _exports_dir() -> str:
     try:
@@ -15,6 +13,8 @@ def _exports_dir() -> str:
             return base
     except Exception:
         pass
+    # Lazy import to avoid circular dependency
+    from jinx.micro.memory.storage import memory_dir
     return os.path.join(memory_dir(), "exports")
 
 

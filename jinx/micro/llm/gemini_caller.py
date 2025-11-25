@@ -12,7 +12,7 @@ import asyncio as _asyncio
 import queue as _queue
 
 # Initialize Gemini client
-GEMINI_MODEL = "gemini-pro"  # or "gemini-1.5-pro" when available
+GEMINI_MODEL = "gemini-2.0-flash"  # or "gemini-1.5-pro" when available
 
 def get_gemini_client():
     """Get or initialize the Gemini client with API key."""

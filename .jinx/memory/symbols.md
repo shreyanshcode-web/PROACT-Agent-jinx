@@ -1,1 +1,0 @@
-symbol: no_response

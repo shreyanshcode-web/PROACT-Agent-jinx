@@ -13,9 +13,21 @@ Design goals
 
 from __future__ import annotations
 
+import os
 import sys
-from jinx.orchestrator import main as jinx_main
+from pathlib import Path
 
+# Add the project root to the Python path
+project_root = str(Path(__file__).parent.absolute())
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    print("Warning: python-dotenv not installed. Environment variables from .env won't be loaded.")
 
 def _run() -> int:
     """Execute the agent runtime.
@@ -26,8 +38,13 @@ def _run() -> int:
         Process exit code. ``0`` on success, non-zero on handled errors.
     """
     try:
-        jinx_main()
-        return 0
+        # Import here to avoid circular imports
+        from jinx.orchestrator import main as jinx_main
+        return jinx_main() or 0
+    except ImportError as e:
+        print(f"Import error: {e}", file=sys.stderr)
+        print("Please make sure all dependencies are installed.", file=sys.stderr)
+        return 1
     except KeyboardInterrupt:
         # Graceful shutdown on Ctrl+C
         return 130  # Conventional exit code for SIGINT
@@ -35,7 +52,6 @@ def _run() -> int:
         # Last-resort guard to avoid silent crashes.
         print(f"Fatal error: {exc}", file=sys.stderr)
         return 1
-
 
 if __name__ == "__main__":
     sys.exit(_run())
