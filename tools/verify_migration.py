@@ -4,6 +4,11 @@ Quick verification script to check if main modules import correctly after migrat
 
 import sys
 import traceback
+from pathlib import Path
+
+# Add project root to path
+project_root = Path(__file__).parent.parent.absolute()
+sys.path.insert(0, str(project_root))
 
 def test_import(module_name):
     """Test if a module can be imported."""

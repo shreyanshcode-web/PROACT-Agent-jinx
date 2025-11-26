@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 # Add project root to path
-project_root = Path(__file__).parent.absolute()
+project_root = Path(__file__).parent.parent.absolute()
 sys.path.insert(0, str(project_root))
 
 print("Step 1: Importing jinx.micro.llm.gemini_service...")

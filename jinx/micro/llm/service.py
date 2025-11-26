@@ -32,158 +32,16 @@ async def code_primer(prompt_override: str | None = None) -> tuple[str, str]:
 async def _prepare_request(txt: str, *, prompt_override: str | None = None) -> tuple[str, str, str, str, str]:
     """Compose instructions and return (jx, tag, model, sx, stxt)."""
     jx, tag = await code_primer(prompt_override)
-    # Expand dynamic prompt macros in real time (vars/env/anchors/sys/runtime/exports + custom providers)
-    try:
-        jx = await compose_dynamic_prompt(jx, key=tag)
-        # Auto-inject helpful embedding macros so the user doesn't need to type them
-        try:
-            auto_on = str(os.getenv("JINX_AUTOMACROS", "1")).lower() not in ("", "0", "false", "off", "no")
-        except Exception:
-            auto_on = True
-        if auto_on and ("{{m:" not in jx or "{{m:emb:" not in jx or "{{m:mem:" not in jx):
-            lines = []
-            try:
-                use_dlg = str(os.getenv("JINX_AUTOMACRO_DIALOGUE", "1")).lower() not in ("", "0", "false", "off", "no")
-            except Exception:
-                use_dlg = True
-            try:
-                use_proj = str(os.getenv("JINX_AUTOMACRO_PROJECT", "1")).lower() not in ("", "0", "false", "off", "no")
-            except Exception:
-                use_proj = True
-            # Dynamic topK per source
-            try:
-                dlg_k = int(os.getenv("JINX_AUTOMACRO_DIALOGUE_K", "3"))
-            except Exception:
-                dlg_k = 3
-            try:
-                proj_k = int(os.getenv("JINX_AUTOMACRO_PROJECT_K", "3"))
-            except Exception:
-                proj_k = 3
-            codey = _is_code_like(txt or "")
-            # Memory automacros
-            try:
-                use_mem = str(os.getenv("JINX_AUTOMACRO_MEMORY", "1").lower()) not in ("", "0", "false", "off", "no")
-            except Exception:
-                use_mem = True
-            try:
-                mem_comp_k = int(os.getenv("JINX_AUTOMACRO_MEM_COMPACT_K", "8"))
-            except Exception:
-                mem_comp_k = 8
-            try:
-                mem_ever_k = int(os.getenv("JINX_AUTOMACRO_MEM_EVERGREEN_K", "8"))
-            except Exception:
-                mem_ever_k = 8
-            # Prefer project for code-like, dialogue for plain text; keep both if allowed
-            if use_dlg:
-                if codey and not use_proj:
-                    lines.append(f"Context (dialogue): {{{{m:emb:dialogue:{dlg_k}}}}}")
-                elif not codey:
-                    lines.append(f"Context (dialogue): {{{{m:emb:dialogue:{dlg_k}}}}}")
-            if use_proj:
-                if codey or not use_dlg:
-                    lines.append(f"Context (code): {{{{m:emb:project:{proj_k}}}}}")
-            if use_mem:
-                # Inject routed memory (pins + graph-aligned + ranker)
-                lines.append(f"Memory (routed): {{{{m:memroute:{max(mem_comp_k, mem_ever_k)}}}}}")
-            if lines:
-                jx = jx + "\n" + "\n".join(lines) + "\n"
-        # Optionally include recent patch previews/commits from runtime exports
-        try:
-            include_patch = str(os.getenv("JINX_AUTOMACRO_PATCH_EXPORTS", "1")).lower() not in ("", "0", "false", "off", "no")
-        except Exception:
-            include_patch = True
-        if include_patch and ("{{export:" not in jx or "{{export:last_patch_" not in jx):
-            exp_lines = [
-                "Recent Patch Preview (may be empty): {{export:last_patch_preview:1}}",
-                "Recent Patch Commit (may be empty): {{export:last_patch_commit:1}}",
-                "Recent Patch Strategy: {{export:last_patch_strategy:1}}",
-                "Recent Patch Reason: {{export:last_patch_reason:1}}",
-            ]
-            jx = jx + "\n" + "\n".join(exp_lines) + "\n"
-        # Optionally include last verification results
-        try:
-            include_verify = str(os.getenv("JINX_AUTOMACRO_VERIFY_EXPORTS", "1")).lower() not in ("", "0", "false", "off", "no")
-        except Exception:
-            include_verify = True
-        if include_verify and ("{{export:" not in jx or "{{export:last_verify_" not in jx):
-            vlines = [
-                "Verification Score: {{export:last_verify_score:1}}",
-                "Verification Reason: {{export:last_verify_reason:1}}",
-                "Verification Files: {{export:last_verify_files:1}}",
-            ]
-            jx = jx + "\n" + "\n".join(vlines) + "\n"
-        # Optionally include last sandbox run artifacts (stdout/stderr/status) via macros
-        try:
-            include_run = str(os.getenv("JINX_AUTOMACRO_RUN_EXPORTS", "1")).lower() not in ("", "0", "false", "off", "no")
-        except Exception:
-            include_run = True
-        if include_run and ("{{m:run:" not in jx):
-            try:
-                run_chars = max(24, int(os.getenv("JINX_MACRO_MEM_PREVIEW_CHARS", "160")))
-            except Exception:
-                run_chars = 160
-            rlines = [
-                f"Last Run Status: {{{{m:run:status}}}}",
-                f"Last Run Stdout: {{{{m:run:stdout:3:chars={run_chars}}}}}",
-                f"Last Run Stderr: {{{{m:run:stderr:2:chars={run_chars}}}}}",
-            ]
-            jx = jx + "\n" + "\n".join(rlines) + "\n"
-        # Build macro context and expand provider macros {{m:ns:arg1:arg2}}
-        try:
-            anc = await load_last_anchors()
-        except Exception:
-            anc = {}
-        try:
-            progs = await list_programs()
-        except Exception:
-            progs = []
-        ctx = MacroContext(
-            key=tag,
-            anchors={k: [str(x) for x in (anc.get(k) or [])] for k in ("questions","symbols","paths")},
-            programs=progs,
-            os_name=platform.system(),
-            py_ver=sys.version.split(" ")[0],
-            cwd=os.getcwd() if hasattr(os, "getcwd") else "",
-            now_iso=_dt.datetime.now().isoformat(timespec="seconds"),
-            now_epoch=str(int(_dt.datetime.now().timestamp())),
-            input_text=txt or "",
-        )
-        # Ensure built-in providers and plugin macros are registered/loaded
-        # Initialize macro providers/plugins once per process
-        import asyncio as _asyncio
-        _init_lock = getattr(spark_gemini, "_macro_init_lock", None)
-        if _init_lock is None:
-            _init_lock = _asyncio.Lock()
-            setattr(spark_gemini, "_macro_init_lock", _init_lock)
-        if not getattr(spark_gemini, "_macro_inited", False):
-            async with _init_lock:
-                if not getattr(spark_gemini, "_macro_inited", False):
-                    try:
-                        await register_builtin_macros()
-                    except Exception:
-                        pass
-                    try:
-                        await load_macro_plugins()
-                    except Exception:
-                        pass
-                    setattr(spark_gemini, "_macro_inited", True)
-        try:
-            max_exp = int(os.getenv("JINX_PROMPT_MACRO_MAX", "50"))
-        except Exception:
-            max_exp = 50
-        jx = await expand_dynamic_macros(jx, ctx, max_expansions=max_exp)
-        # Best-effort token hint (chars/4 heuristic) for dynamic memory budgets
-        try:
-            est_tokens = max(0, (len(jx) + len(txt or "")) // 4)
-            await write_token_hint(est_tokens)
-        except Exception:
-            pass
-    except Exception:
-        pass
+    
+    # Get the model from environment or use default
     model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
-    # Sanitize prompts to avoid leaking internal .jinx paths/content
-    sx = sanitize_prompt_for_external_api(jx)
-    stxt = sanitize_prompt_for_external_api(txt or "")
+    
+    # Sanitize the input text if needed
+    stxt = sanitize_prompt_for_external_api(txt)
+    
+    # Prepare the system prompt (sx) - using instructions as system prompt
+    sx = jx
+    
     return jx, tag, model, sx, stxt
 
 

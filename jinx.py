@@ -26,12 +26,20 @@ project_root = str(Path(__file__).parent.absolute())
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
+# Performance Optimizations
+# Disable expensive optional features to improve response time
+os.environ["JINX_CONTINUITY_ENABLE"] = "0"  # Disable continuity (extra LLM calls)
+os.environ["JINX_PLANNER_CTX"] = "0"        # Disable planner (extra LLM call)
+os.environ["JINX_MEMSEL_CONF_MIN"] = "0.9"  # High threshold for memory selection
+os.environ["JINX_TURNS_CONF_MIN"] = "0.9"   # High threshold for turns
+os.environ["JINX_EMBED_MEMORY_CTX"] = "0"   # Disable memory embeddings context
+
 # Load environment variables from .env file
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
-    print("Warning: python-dotenv not installed. Environment variables from .env won't be loaded.")
+    print("Warning: python-dotenv not installed. Environment variables from .env won't be loaded.", file=sys.stderr)
 
 def _run() -> int:
     """Execute the agent runtime.

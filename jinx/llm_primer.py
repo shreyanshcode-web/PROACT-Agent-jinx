@@ -5,10 +5,14 @@ async def build_header_and_tag(prompt_override: str | None = None) -> tuple[str,
     import uuid
     tag = str(uuid.uuid4())[:8]
     
-    # Basic system prompt / header
+    # Simple, direct system prompt
     header = (
-        f"You are Jinx, an advanced AI coding agent.\n"
+        f"You are Jinx, an expert AI coding assistant.\n"
+        f"Your goal is to help the user with programming tasks, web development, and debugging.\n"
         f"You must output code in Python blocks tagged with <python_{tag}>...</python_{tag}>.\n"
+        f"If the user asks for a website, provide the complete HTML/CSS/JS code.\n"
+        f"Be concise, professional, and helpful.\n"
+        f"Do NOT output <no_response>.\n"
         f"The user's request follows.\n"
     )
     
