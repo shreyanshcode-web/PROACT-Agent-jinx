@@ -5,11 +5,28 @@ import hashlib
 import json
 import os
 import time
-from typing import Any, Dict, Optional, Tuple, List
 from threading import Lock as _TLock
+from typing import Any, Dict, Optional, Tuple, List
 
 from jinx.net import get_gemini_client
 from jinx.micro.parser.api import parse_tagged_blocks as _parse_blocks
+
+# Optional Redis cache support
+try:
+    import redis
+except Exception:
+    redis = None
+
+# Environment configuration
+_USE_REDIS = str(os.getenv("USE_REDIS_CACHE", "0")).lower() in {"1", "true", "yes", "on"}
+if _USE_REDIS and redis:
+    _redis_client = redis.Redis(
+        host=os.getenv("REDIS_HOST", "localhost"),
+        port=int(os.getenv("REDIS_PORT", "6379")),
+        db=int(os.getenv("REDIS_DB", "0")),
+    )
+else:
+    _redis_client = None
 
 # TTL cache + request coalescing + concurrency limiting + timeouts for LLM Responses API
 # Keyed by a stable fingerprint of (instructions, model, input_text, extra_kwargs)
@@ -41,9 +58,9 @@ def _now() -> float:
 
 
 def _safe_jsonable(obj: Any, depth: int = 0) -> Any:
-    """Best-effort transform to jsonable structure without exploding on exotic types.
+    """Best‑effort transform to a JSON‑compatible structure.
 
-    Limits depth to avoid huge payloads; falls back to repr for unknowns.
+    Limits depth to avoid huge payloads; falls back to ``repr`` for unknowns.
     """
     if depth > 4:
         return f"<{type(obj).__name__}:depth>"
@@ -52,13 +69,12 @@ def _safe_jsonable(obj: Any, depth: int = 0) -> Any:
     if isinstance(obj, dict):
         return {str(k): _safe_jsonable(v, depth + 1) for k, v in sorted(obj.items(), key=lambda x: str(x[0]))}
     if isinstance(obj, (list, tuple)):
-        return [_safe_jsonable(v, depth + 1) for v in obj[:100]]  # cap length for stability
+        return [_safe_jsonable(v, depth + 1) for v in obj[:100]]
     try:
-        return json.loads(json.dumps(obj))  # type: ignore[arg-type]
+        return json.loads(json.dumps(obj))
     except Exception:
         try:
             r = repr(obj)
-            # trim very long reprs to keep key stable and small
             if len(r) > 256:
                 r = r[:256] + "..."
             return r
@@ -68,9 +84,9 @@ def _safe_jsonable(obj: Any, depth: int = 0) -> Any:
 
 def _fingerprint(instructions: str, model: str, input_text: str, extra_kwargs: Dict[str, Any]) -> str:
     payload = {
-        "i": (instructions or ""),
-        "m": (model or ""),
-        "t": (input_text or ""),
+        "i": instructions or "",
+        "m": model or "",
+        "t": input_text or "",
         "k": _safe_jsonable(extra_kwargs or {}),
     }
     s = json.dumps(payload, ensure_ascii=False, sort_keys=True)
@@ -81,7 +97,7 @@ def _fingerprint_family(instructions: str, model: str, input_text: str) -> str:
     """Family fingerprint ignoring extra kwargs.
 
     Used to coalesce outward calls for the same logical request shape regardless of
-    small variations (like temperature) to guarantee single outbound call.
+    small variations (like temperature) to guarantee a single outbound call.
     """
     return _fingerprint(instructions, model, input_text, {})
 
@@ -97,18 +113,24 @@ async def _dump_line(line: str) -> None:
         pass
 
 
-async def call_gemini_cached(instructions: str, model: str, input_text: str, *, extra_kwargs: Optional[Dict[str, Any]] = None) -> str:
+async def call_gemini_cached(
+    instructions: str,
+    model: str,
+    input_text: str,
+    *,
+    extra_kwargs: Optional[Dict[str, Any]] = None,
+) -> str:
     """Cached/coalesced wrapper for Gemini API.
 
-    Returns output_text (string). On API error, raises the exception (caller logs/handles).
+    Returns the generated text. On API error the exception propagates.
     """
     ek = extra_kwargs or {}
-    # Strip internal control keys from fingerprinting and outbound SDK kwargs
     ek_fpr = {str(k): v for k, v in ek.items() if not str(k).startswith("__")}
     key = _fingerprint(instructions, model, input_text, ek_fpr)
     fam_key = _fingerprint_family(instructions, model, input_text)
     no_family = bool(ek.get("__no_family__", False))
-    # TTL cache lookup
+
+    # In‑memory TTL cache lookup
     item = _mem.get(key)
     if item is not None:
         exp, val = item
@@ -117,17 +139,23 @@ async def call_gemini_cached(instructions: str, model: str, input_text: str, *, 
         else:
             _mem.pop(key, None)
 
-    # Coalescing (with race-free creation)
+    # Redis fallback lookup
+    if _redis_client:
+        try:
+            cached = _redis_client.get(key)
+            if cached:
+                return cached.decode("utf-8")
+        except Exception:
+            pass
+
+    # Coalescing (prevent duplicate outbound calls)
     loop = asyncio.get_running_loop()
     to_wait: asyncio.Future | None = None
-    # Cross-thread safe critical section for inflight maps
     with _inflight_tlock:
-        # Exact-key inflight first
         existing_exact = _inflight.get(key)
         if existing_exact is not None:
             to_wait = existing_exact
         else:
-            # Family-level inflight (unless disabled)
             if not no_family:
                 existing_fam = _family_inflight.get(fam_key)
                 if existing_fam is not None:
@@ -142,76 +170,57 @@ async def call_gemini_cached(instructions: str, model: str, input_text: str, *, 
             res = await to_wait
             return str(res or "")
         except Exception:
-            # If the inflight failed, continue to execute fresh
             pass
+
     soft_timeout = False
     async with _sem:
         await _dump_line(f"call key={key[:8]} model={model} ilen={len(instructions)} tlen={len(input_text)}")
         def _worker():
             import google.generativeai as genai
             client = get_gemini_client()
-            # Gemini doesn't use the same kwargs structure, so we adapt basic ones
             ek_api = {str(k): v for k, v in ek.items() if not str(k).startswith("__")}
-            
-            # Extract generation config parameters
-            gen_config = {}
+            gen_config: Dict[str, Any] = {}
             if "temperature" in ek_api:
                 gen_config["temperature"] = ek_api.pop("temperature")
             if "max_tokens" in ek_api:
                 gen_config["max_output_tokens"] = ek_api.pop("max_tokens")
-                
-            # Use the model passed in, or fall back to default
             model_name = model or "gemini-pro"
             gm = genai.GenerativeModel(model_name)
-            
-            # Combine instructions and input for Gemini
             prompt = f"{instructions}\n\n{input_text}"
-            
-            response = gm.generate_content(
-                prompt,
-                generation_config=gen_config
-            )
+            response = gm.generate_content(prompt, generation_config=gen_config)
             return response
-        # Launch background task so we can safely wait on shared fut even if a soft timeout occurs
         task: asyncio.Task = asyncio.create_task(asyncio.to_thread(_worker))
-
         def _on_done(t: asyncio.Task) -> None:
             try:
                 if t.cancelled():
-                    # Propagate cancellation to awaiters without leaking to event loop logs
                     if not fut.done():
                         fut.set_exception(asyncio.CancelledError())
                     return
                 r = t.result()
                 out = str(getattr(r, "text", ""))
                 _mem[key] = (_now() + max(1.0, _TTL_SEC), out)
+                if _redis_client:
+                    try:
+                        _redis_client.setex(key, int(_TTL_SEC), out)
+                    except Exception:
+                        pass
                 if not fut.done():
                     fut.set_result(out)
             except BaseException as ex:
-                try:
-                    if not fut.done():
-                        fut.set_exception(ex)
-                except BaseException:
-                    pass
+                if not fut.done():
+                    fut.set_exception(ex)
             finally:
-                try:
-                    _inflight.pop(key, None)
-                except Exception:
-                    pass
-                # Clear family mapping if set
+                _inflight.pop(key, None)
                 if not no_family:
                     try:
                         if _family_inflight.get(fam_key) is fut:
                             _family_inflight.pop(fam_key, None)
                     except Exception:
                         pass
-
         task.add_done_callback(_on_done)
-        # Implement soft timeout without cancelling the underlying task
         timeout_sec = max(0.1, _TIMEOUT_MS / 1000)
         timeout_task = asyncio.create_task(asyncio.sleep(timeout_sec))
         done, _ = await asyncio.wait({task, timeout_task}, return_when=asyncio.FIRST_COMPLETED)
-        # Clean up timeout task if still pending
         if not timeout_task.done():
             timeout_task.cancel()
             try:
@@ -222,27 +231,22 @@ async def call_gemini_cached(instructions: str, model: str, input_text: str, *, 
             try:
                 r = await task
             except asyncio.CancelledError:
-                # Should not happen since we didn't cancel; treat as transient
                 soft_timeout = True
                 await _dump_line("soft_timeout_cancelled")
             else:
                 out = str(getattr(r, "text", ""))
-                # Callback will also set cache/fut and pop inflight; just return out here
                 return out
         else:
             soft_timeout = True
             await _dump_line("soft_timeout")
-
-    # If we timed out, release the semaphore first, then await the shared inflight future.
     if soft_timeout:
         await _dump_line("awaiting inflight outside semaphore")
         try:
             res = await fut
             return str(res or "")
         except BaseException as ex:
-            # Propagate the underlying error if the background task failed
             raise ex
-    
+
 
 async def call_gemini_multi_validated(
     instructions: str,
