@@ -12,3 +12,12 @@ typing-extensions>=4.0.0
 
 # For logging and error handling
 loguru>=0.6.0
+
+# Database support
+sqlalchemy>=1.4
+alembic>=1.11
+passlib[bcrypt]
+# Test deps
+pytest
+pytest-asyncio
+httpx

@@ -1,2 +1,8 @@
 fastapi
 uvicorn[standard]
+sqlalchemy>=1.4
+python-dotenv
+passlib[bcrypt]
+pytest
+pytest-asyncio
+httpx

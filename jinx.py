@@ -41,6 +41,18 @@ try:
 except ImportError:
     print("Warning: python-dotenv not installed. Environment variables from .env won't be loaded.", file=sys.stderr)
 
+# Initialize database (creates tables) if DB module is present
+try:
+    from jinx.db.session import init_db
+    try:
+        init_db()
+    except Exception:
+        # Be conservative: don't crash startup if DB init fails.
+        pass
+except Exception:
+    # DB integration is optional; continue if missing
+    pass
+
 def _run() -> int:
     """Execute the agent runtime.
 

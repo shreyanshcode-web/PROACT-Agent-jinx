@@ -3,6 +3,43 @@ from __future__ import annotations
 import os
 import time
 
+# If the environment requests DB-backed memory, prefer the DB implementation.
+if os.getenv("JINX_MEMORY_USE_DB", "0").lower() in ("1", "true", "yes"):
+    try:
+        # Import the DB-backed memory API and re-export it.
+        from jinx.db.storage import (
+            write_open_buffers,
+            open_buffers_path,
+            write_token_hint,
+            read_token_hint,
+            memory_dir,
+            read_evergreen,
+            get_memory_mtimes,
+            read_compact,
+            read_channel,
+            read_topic,
+            ensure_nl,
+            write_state,
+        )
+
+        __all__ = [
+            "write_open_buffers",
+            "open_buffers_path",
+            "write_token_hint",
+            "read_token_hint",
+            "memory_dir",
+            "read_evergreen",
+            "get_memory_mtimes",
+            "read_compact",
+            "read_channel",
+            "read_topic",
+            "ensure_nl",
+            "write_state",
+        ]
+    except Exception:
+        # Fall back to file-based implementation below on any import failure.
+        pass
+
 from jinx.async_utils.fs import read_text_raw, write_text
 from jinx.state import shard_lock
 from jinx.log_paths import INK_SMEARED_DIARY, EVERGREEN_MEMORY
