@@ -1,31 +1,47 @@
+import sys
 import os
 import pytest
+import tempfile
 
+# Add project root to path so backend is importable
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-@pytest.mark.asyncio
-async def test_signup_and_login(tmp_path, monkeypatch):
-    # Use an in-memory sqlite DB for tests
-    monkeypatch.setenv("JINX_DATABASE_URL", "sqlite:///:memory:")
-    # Import app after env var is set so DB engine uses correct URL
+@pytest.fixture
+def temp_db():
+    """Create a temporary SQLite DB file for each test."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_file = os.path.join(tmpdir, "test.db")
+        db_url = f"sqlite:///{db_file}"
+        yield db_url
+
+def test_signup_and_login(temp_db, monkeypatch):
+    """Test signup and login with bcrypt hashing using sync TestClient."""
+    # Set DB URL before importing app
+    monkeypatch.setenv("JINX_DATABASE_URL", temp_db)
+    
+    # Import here after env is set
+    import importlib
     from backend import api_server
-    from httpx import AsyncClient
+    importlib.reload(api_server)  # Reload to pick up new DB URL
+    from fastapi.testclient import TestClient
 
-    async with AsyncClient(app=api_server.app, base_url="http://test") as ac:
-        # Signup
-        r = await ac.post("/api/signup", json={"username": "testuser", "password": "s3cret"})
-        assert r.status_code == 200
-        data = r.json()
-        assert data.get("status") == "created"
+    client = TestClient(api_server.app)
 
-        # Duplicate signup should fail
-        r2 = await ac.post("/api/signup", json={"username": "testuser", "password": "s3cret"})
-        assert r2.status_code == 400
+    # Signup
+    r = client.post("/api/signup", json={"username": "testuser", "password": "pwd123"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data.get("status") == "created"
 
-        # Login with correct credentials
-        r3 = await ac.post("/api/login", json={"username": "testuser", "password": "s3cret"})
-        assert r3.status_code == 200
-        assert r3.json().get("token") == "testuser"
+    # Duplicate signup should fail
+    r2 = client.post("/api/signup", json={"username": "testuser", "password": "pwd123"})
+    assert r2.status_code == 400
 
-        # Login with wrong password
-        r4 = await ac.post("/api/login", json={"username": "testuser", "password": "wrong"})
-        assert r4.status_code == 401
+    # Login with correct credentials
+    r3 = client.post("/api/login", json={"username": "testuser", "password": "pwd123"})
+    assert r3.status_code == 200
+    assert r3.json().get("token") == "testuser"
+
+    # Login with wrong password
+    r4 = client.post("/api/login", json={"username": "testuser", "password": "wrong"})
+    assert r4.status_code == 401
